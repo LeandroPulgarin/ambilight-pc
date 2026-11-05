@@ -1,0 +1,21 @@
+# diyHue (emulador de Hue Bridge) para la prueba con la app Hue Sync del TV.
+# Docker Desktop en Windows no soporta network_mode: host, así que va en modo bridge con la IP
+# y la MAC del PC (la Ethernet): la app Hue no empareja si no coinciden con las del equipo.
+#
+# No se publica el 1900/udp (SSDP): el multicast no entra al contenedor; lo atiende servicio.js.
+services:
+  diyhue:
+    container_name: diyhue
+    image: diyhue/core:latest
+    restart: "no"
+    ports:
+      - "80:80/tcp"     # API Hue y web de diyHue
+      - "443:443/tcp"   # API Hue por HTTPS (la usan la app Hue y el TV)
+      - "2100:2100/udp" # Hue Entertainment (DTLS): el stream de Hue Sync
+    volumes:
+      - ./config:/opt/hue-emulator/config
+    environment:
+      - MAC=2c:f0:5d:69:88:9f
+      - IP=192.168.1.16
+      - TZ=America/Bogota
+      - DEBUG=false

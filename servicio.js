@@ -25,6 +25,15 @@ const { HueBridge } = require("./lib/hue");
 const { Musica, EFECTOS } = require("./lib/musica");
 const { Teclado, EFECTOS_TECLADO } = require("./lib/teclado");
 const { hsvToRgb, hueSatToRgb, xyToRgb, ctToRgb, rgbToHueSat } = require("./lib/colores");
+const { WledFalso, segmentosTira } = require("./lib/wled");
+const { AnuncioHue } = require("./lib/mdns");
+
+// Modo de prueba Hue Sync (TIRA_HUESYNC=1): diyHue en Docker ocupa los puertos 80/443 como
+// puente Hue y la tira se le ofrece como un WLED. El puente de Alexa se apaga, el panel pasa
+// al puerto 8080 y este servicio solo anuncia el puente (SSDP/mDNS) en nombre de diyHue.
+const HUESYNC = process.env.TIRA_HUESYNC === "1";
+const PUERTO_PANEL = HUESYNC ? 8080 : 80;
+let wled = null;
 
 const ESTADO_PATH = path.join(__dirname, "estado.json");
 const LOG_PATH = path.join(__dirname, "servicio.log");
@@ -350,10 +359,19 @@ const resumenPantalla = () => {
   };
 };
 
+let hueSyncActivo = false;
+
 setInterval(async () => {
   const ahora = Date.now();
+  // Hue Sync (vía diyHue) manda sobre todo lo demás mientras controla la tira
+  const hueSync = Boolean(wled && wled.activo());
+  if (hueSync !== hueSyncActivo) {
+    hueSyncActivo = hueSync;
+    // Los colores de Hue ya traen su brillo: la tira a tope mientras dure
+    if (hueSync && light) light.setBrightness(100);
+  }
   const enPantalla =
-    estado.encendida && (estado.modo === "pantalla" || (estado.pantallaAuto && pantallaCompleta));
+    !hueSync && estado.encendida && (estado.modo === "pantalla" || (estado.pantallaAuto && pantallaCompleta));
   ambilightActivo = enPantalla;
   if (enPantalla) motorPantalla.iniciar();
   else {
@@ -362,7 +380,8 @@ setInterval(async () => {
   }
   // En modo pantalla el ambilight ya sigue a los videos: el modo música no se activa
   const sonando = Boolean(
-    !enPantalla &&
+    !hueSync &&
+      !enPantalla &&
       estado.encendida &&
       estado.musicaAuto &&
       lectura &&
@@ -373,19 +392,23 @@ setInterval(async () => {
     musicaActiva = sonando;
     log(sonando ? `Modo música: ${lectura.t || "reproducción detectada"} (${lectura.app})` : "Modo música: fin");
   }
-  const escribiendo = estado.encendida && estado.tecladoActivo && ahora - ultimaTecla < TECLADO_REPOSO_MS;
-  const usaTeclado = escribiendo || (estado.encendida && estado.tecladoActivo && teclado.activo());
+  const escribiendo =
+    !hueSync && estado.encendida && estado.tecladoActivo && ahora - ultimaTecla < TECLADO_REPOSO_MS;
+  const usaTeclado = escribiendo || (!hueSync && estado.encendida && estado.tecladoActivo && teclado.activo());
 
   const antes = controlando;
-  controlando = enPantalla || musicaActiva || usaTeclado;
-  if (!enPantalla && !musicaActiva) cuadroBase = null;
+  controlando = hueSync || enPantalla || musicaActiva || usaTeclado;
+  if (!hueSync && !enPantalla && !musicaActiva) cuadroBase = null;
   if (antes && !controlando) return aplicar(); // devolver la tira a su color o efecto
   if (!controlando || !light) return;
 
   musica.n = teclado.n = numLeds;
   let cuadro;
   let color;
-  if (enPantalla) {
+  if (hueSync) {
+    cuadro = wled.cuadro();
+    color = media(cuadro);
+  } else if (enPantalla) {
     suavizarPantalla();
     cuadro = cuadroPantalla();
     color = media(cuadro); // las ondas del teclado toman el color medio de la pantalla
@@ -400,7 +423,7 @@ setInterval(async () => {
       : Array.from({ length: numLeds }, () => color);
   }
   // La lámpara sigue la pantalla o la música, no las ondas del teclado
-  if (enPantalla || musicaActiva) cuadroBase = cuadro;
+  if (hueSync || enPantalla || musicaActiva) cuadroBase = cuadro;
   if (usaTeclado)
     cuadro = teclado.cuadro(cuadro, color, estado.efectoTeclado, escribiendo, estado.velocidadTeclado);
   try {
@@ -644,12 +667,21 @@ const estadoPublico = () => ({
   pantalla: resumenPantalla(),
   ambilight: ambilightActivo,
   pantallaCompleta: ambilightActivo && estado.modo !== "pantalla" ? appCompleta : null,
+  hueSync: wled ? { activo: hueSyncActivo, stream: wled.streaming(), fps: wled.fps } : null,
 });
 
 const iniciar = async () => {
   const ip = await ipLocal();
   const bridge = new HueBridge({ ip, mac: PUENTE_MAC, lights: luces, log, activo: () => !!light });
   alConectar = () => bridge.anunciar();
+  let anuncioHue = null;
+  if (HUESYNC) {
+    // La tira, como WLED para diyHue. El TV no habla con ella: solo diyHue (en Docker, en este PC)
+    wled = new WledFalso({ nombre: "Tira-PC", mac: PUENTE_MAC, numLeds, segmentos: segmentosTira(reparto(numLeds)), log });
+    wled.iniciar();
+    anuncioHue = new AnuncioHue({ ip, bridgeId: bridge.bridgeId, log });
+    anuncioHue.iniciar();
+  }
 
   const server = http.createServer((req, res) => {
     if (process.env.TIRA_DEBUG && !esLocal(req)) {
@@ -698,10 +730,16 @@ const iniciar = async () => {
     log(`Error HTTP: ${e.message}${e.code === "EADDRINUSE" ? " (¿ya hay otro servicio en marcha?)" : ""}`);
     process.exit(1);
   });
-  server.listen(80, () => {
-    log(`Servicio iniciado. Puente Hue en http://${ip}:80`);
-    bridge.startSsdp();
-    bridge.startHttpsReject();
+  server.listen(PUERTO_PANEL, () => {
+    if (HUESYNC) {
+      // El SSDP apunta a http://IP:80/description.xml, que ahora sirve diyHue
+      log(`Servicio iniciado en modo prueba Hue Sync. Panel en http://${ip}:${PUERTO_PANEL}; puente diyHue en http://${ip}`);
+      bridge.startSsdp();
+    } else {
+      log(`Servicio iniciado. Puente Hue en http://${ip}:80`);
+      bridge.startSsdp();
+      bridge.startHttpsReject();
+    }
   });
 
   // Cada minuto (y tras despertar) se rehace la suscripción SSDP y se sigue a la IP si cambia
@@ -709,6 +747,7 @@ const iniciar = async () => {
     const nueva = await ipLocal();
     if (nueva !== bridge.ip) log(`La IP cambió: ${bridge.ip} -> ${nueva}`);
     bridge.joinMulticast(nueva);
+    if (anuncioHue) anuncioHue.unirse(nueva);
   };
   setInterval(refrescarRed, 60000);
 

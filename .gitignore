@@ -8,3 +8,4 @@ firewall-resultado.txt
 tuya/
 __pycache__/
 *.log
+huesync/config/
