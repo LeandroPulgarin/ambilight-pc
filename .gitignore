@@ -1,0 +1,10 @@
+node_modules/
+synclight-extraido/
+analisis/
+estado.json
+servicio.log
+firewall-resultado.txt
+.venv/
+tuya/
+__pycache__/
+*.log

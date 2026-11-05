@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B1826">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>LED monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --fondo: #1B1826;
+    --superficie: #262238;
+    --borde: #39334F;
+    --texto: #ECE8F5;
+    --tenue: #9C95B3;
+    --pantalla: #0E0C15;
+    /* El acento es el color actual de la tira; lo actualiza el script */
+    --tira: rgb(120, 110, 255);
+    --sobre-tira: #fff;
+    --brillo: 1;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --fondo: #EFEDF5;
+      --superficie: #FFFFFF;
+      --borde: #D8D3E6;
+      --texto: #1D1A29;
+      --tenue: #625C78;
+      --pantalla: #1D1A29;
+      color-scheme: light;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.45;
+    -webkit-tap-highlight-color: transparent;
+  }
+  main {
+    max-width: 30rem;
+    margin: 0 auto;
+    padding: max(1rem, env(safe-area-inset-top)) 1rem 3rem;
+  }
+
+  /* ---------- Cabecera ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  h1 {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-variation-settings: "opsz" 96;
+  }
+  .encendido {
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding: 0.55rem 1.1rem;
+    border-radius: 999px;
+    border: 2px solid var(--tira);
+    background: var(--tira);
+    color: var(--sobre-tira);
+    cursor: pointer;
+    min-height: 44px;
+  }
+  .encendido[aria-pressed="false"] {
+    background: transparent;
+    color: var(--texto);
+    border-color: var(--borde);
+  }
+
+  /* ---------- El monitor con su resplandor (el protagonista) ---------- */
+  .escena {
+    position: relative;
+    margin: 2.25rem auto 0.75rem;
+    width: min(100%, 22rem);
+    aspect-ratio: 16 / 11;
+    display: grid;
+    place-items: start center;
+  }
+  .resplandor {
+    /* Solo izquierda, arriba y derecha, como la tira real; por abajo no hay LEDs */
+    position: absolute;
+    left: 1%;
+    right: 1%;
+    top: -4%;
+    height: 82%;
+    border-radius: 28px 28px 6px 6px;
+    background: var(--tira);
+    filter: blur(26px);
+    opacity: calc(0.25 + 0.75 * var(--brillo));
+    transition: opacity 0.4s, background-color 0.4s;
+  }
+  .apagada .resplandor { opacity: 0; }
+  .efecto-integrado .resplandor {
+    background: conic-gradient(from 0deg, #ff4d6d, #ffb84d, #f9f871, #4dff9b, #4dc3ff, #9b6bff, #ff4d6d);
+    animation: girar 12s linear infinite;
+  }
+  .en-pantalla .resplandor { background: var(--grad, var(--tira)); }
+  #ajustes-pantalla, #ajustes-lampara { transition: opacity 0.3s; }
+  #ajustes-pantalla.inactivo, #ajustes-lampara.inactivo { opacity: 0.45; }
+  .sonando .resplandor { animation: respirar 2.6s ease-in-out infinite; }
+  .sonando.efecto-integrado .resplandor { animation: girar 12s linear infinite, respirar 2.6s ease-in-out infinite; }
+  @keyframes respirar { 50% { opacity: calc(0.15 + 0.45 * var(--brillo)); } }
+  @keyframes girar { to { filter: blur(26px) hue-rotate(360deg); } }
+
+  .monitor {
+    position: relative;
+    width: 92%;
+    aspect-ratio: 16 / 9;
+    border-radius: 10px;
+    background: var(--pantalla);
+    border: 3px solid #2E2A3D;
+    box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    color: #6F6888;
+    font-size: 0.85rem;
+  }
+  .monitor:focus-visible { outline: 3px solid var(--tira); outline-offset: 4px; }
+  .pie {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 22%;
+    height: 14%;
+    transform: translateX(-50%);
+    background: linear-gradient(#2E2A3D, #2E2A3D) center top / 22% 70% no-repeat,
+                linear-gradient(#2E2A3D, #2E2A3D) center bottom / 100% 30% no-repeat;
+    border-radius: 0 0 6px 6px;
+  }
+
+  .estado {
+    text-align: center;
+    color: var(--tenue);
+    font-size: 0.95rem;
+    min-height: 1.4em;
+    margin: 0 0 0.25rem;
+  }
+  .estado strong { color: var(--texto); font-weight: 600; }
+
+  /* ---------- Secciones ---------- */
+  section { margin-top: 2.25rem; }
+  h2 {
+    margin: 0 0 0.85rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .nota { color: var(--tenue); font-size: 0.9rem; margin: -0.5rem 0 1rem; }
+
+  /* Colores */
+  .muestras {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.75rem;
+  }
+  .muestra, .otro {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 0;
+    cursor: pointer;
+    position: relative;
+    min-width: 44px;
+  }
+  .muestra[aria-pressed="true"], .otro.activo {
+    box-shadow: 0 0 0 3px var(--fondo), 0 0 0 5px var(--texto);
+  }
+  .muestra:focus-visible, .otro:focus-within { outline: 3px solid var(--texto); outline-offset: 3px; }
+  .otro {
+    display: grid;
+    place-items: center;
+    background: conic-gradient(#ff4d6d, #ffb84d, #f9f871, #4dff9b, #4dc3ff, #9b6bff, #ff4d6d);
+    overflow: hidden;
+  }
+  .otro span {
+    width: 46%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: var(--superficie);
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    font-size: 1.1rem;
+    color: var(--texto);
+  }
+  .otro input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Deslizadores con la pista rellena del color de la tira */
+  .deslizador { display: grid; gap: 0.4rem; }
+  .deslizador + .deslizador { margin-top: 1.25rem; }
+  .deslizador label {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+  }
+  .deslizador output { color: var(--tenue); font-variant-numeric: tabular-nums; font-weight: 500; }
+  .deslizador small { color: var(--tenue); font-size: 0.85rem; margin-top: -0.2rem; }
+  input[type="range"] {
+    --pct: 50%;
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 44px;
+    background: transparent;
+    cursor: pointer;
+    margin: 0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 999px;
+    background: linear-gradient(to right, var(--tira) var(--pct), var(--borde) var(--pct));
+  }
+  input[type="range"]::-moz-range-track {
+    height: 10px;
+    border-radius: 999px;
+    background: linear-gradient(to right, var(--tira) var(--pct), var(--borde) var(--pct));
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 26px;
+    height: 26px;
+    margin-top: -8px;
+    border-radius: 50%;
+    background: var(--texto);
+    border: 4px solid var(--fondo);
+    box-shadow: 0 0 0 1px var(--borde);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--texto);
+    border: 4px solid var(--fondo);
+  }
+  input[type="range"]:focus-visible { outline: 3px solid var(--tira); outline-offset: 2px; border-radius: 8px; }
+
+  /* Interruptor del modo música */
+  .interruptor {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+    background: var(--superficie);
+    border-radius: 14px;
+    cursor: pointer;
+  }
+  .interruptor.separado { margin-top: 0.6rem; }
+  .interruptor span { display: grid; }
+  .interruptor b { font-weight: 600; }
+  .interruptor small { color: var(--tenue); font-size: 0.85rem; }
+  .interruptor input {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: none;
+    width: 52px;
+    height: 32px;
+    border-radius: 999px;
+    background: var(--borde);
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin: 0;
+  }
+  .interruptor input::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s;
+  }
+  .interruptor input:checked { background: var(--tira); }
+  .interruptor input:checked::after { transform: translateX(20px); }
+  .interruptor input:focus-visible { outline: 3px solid var(--texto); outline-offset: 2px; }
+
+  /* Lista de efectos de música */
+  .efectos { margin-top: 1.25rem; transition: opacity 0.3s; }
+  .efectos.inactivo { opacity: 0.45; }
+  .grupo {
+    color: var(--tenue);
+    font-size: 0.9rem;
+    margin: 1rem 0 0.4rem;
+  }
+  .efecto {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    padding: 0.7rem 0.25rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--borde);
+  }
+  .efecto:last-of-type { border-bottom: 0; }
+  .efecto input {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin: 0.15rem 0 0;
+    border-radius: 50%;
+    border: 2px solid var(--borde);
+    cursor: pointer;
+  }
+  .efecto input:checked { border: 7px solid var(--tira); }
+  .efecto input:focus-visible { outline: 3px solid var(--texto); outline-offset: 2px; }
+  .efecto b { display: block; font-weight: 600; }
+  .efecto small { color: var(--tenue); font-size: 0.88rem; }
+  .intensidad { margin-top: 1.25rem; }
+
+  /* Efectos integrados de la tira */
+  .fila { margin-bottom: 1.1rem; }
+  .fila.con-margen { margin-top: 1.75rem; }
+  .fila p { margin: 0 0 0.5rem; font-weight: 600; }
+  .chips { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.4rem; }
+  .chip {
+    font: inherit;
+    font-weight: 600;
+    min-width: 0;
+    min-height: 44px;
+    border-radius: 12px;
+    border: 1px solid var(--borde);
+    background: var(--superficie);
+    color: var(--texto);
+    cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--tira); border-color: var(--tira); color: var(--sobre-tira); }
+  .chip:focus-visible { outline: 3px solid var(--texto); outline-offset: 2px; }
+
+  footer {
+    margin-top: 2.5rem;
+    color: var(--tenue);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+  .aviso {
+    position: fixed;
+    left: 50%;
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    transform: translate(-50%, calc(100% + 2rem));
+    visibility: hidden;
+    background: var(--texto);
+    color: var(--fondo);
+    padding: 0.7rem 1.1rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.92rem;
+    transition: transform 0.25s, visibility 0.25s;
+    max-width: calc(100% - 2rem);
+  }
+  .aviso.visible { transform: translate(-50%, 0); visibility: visible; }
+
+  /* ---------- Escritorio: el monitor y lo básico fijos a la izquierda, ajustes a la derecha ---------- */
+  @media (min-width: 960px) {
+    main {
+      max-width: 86rem;
+      padding: 2.5rem 2.5rem 3rem;
+      display: grid;
+      grid-template-columns: minmax(22rem, 27rem) 1fr;
+      column-gap: clamp(2.5rem, 5vw, 5rem);
+      align-items: start;
+    }
+    .principal {
+      position: sticky;
+      top: 2.5rem;
+    }
+    h1 { font-size: 2.1rem; }
+    .escena { width: 100%; margin-top: 3rem; }
+    /* Con ratón no hacen falta círculos tan grandes como para el dedo */
+    .muestras { grid-template-columns: repeat(5, 3.5rem); justify-content: space-between; }
+    .ajustes > section:first-child { margin-top: 0; }
+    /* El título de la columna izquierda y el primer título de la derecha quedan alineados */
+    .ajustes { padding-top: 0.55rem; }
+    footer { grid-column: 1 / -1; }
+    /* Pasar el ratón por encima ayuda a ver qué se puede tocar */
+    .efecto, .interruptor, .chip, .muestra, .otro { transition: background-color 0.15s, transform 0.15s; }
+    .efecto:hover { background: color-mix(in srgb, var(--superficie) 70%, transparent); border-radius: 10px; }
+    .chip:hover:not([aria-pressed="true"]) { border-color: var(--tenue); }
+    .muestra:hover, .otro:hover { transform: scale(1.06); }
+  }
+
+  /* Pantallas anchas: los ajustes se reparten en dos columnas, sin cortar ninguna sección */
+  @media (min-width: 1360px) {
+    .ajustes { columns: 2; column-gap: 3rem; }
+    .ajustes > section {
+      break-inside: avoid;
+      margin: 0 0 2.75rem;
+      display: inline-block;
+      width: 100%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .resplandor, .sonando .resplandor, .efecto-integrado .resplandor { animation: none !important; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<main>
+ <div class="principal">
+  <header>
+    <h1>LED monitor</h1>
+    <button class="encendido" id="encendido" aria-pressed="true">Apagar</button>
+  </header>
+
+  <div class="escena" id="escena">
+    <div class="resplandor"></div>
+    <button class="monitor" id="monitor" aria-label="Encender o apagar la tira"></button>
+    <div class="pie" aria-hidden="true"></div>
+  </div>
+  <p class="estado" id="estado" aria-live="polite">Conectando con la tira…</p>
+
+  <section aria-labelledby="t-color">
+    <h2 id="t-color">Color</h2>
+    <div class="muestras" id="muestras">
+      <label class="otro" id="otro" title="Elegir otro color">
+        <span aria-hidden="true">+</span>
+        <input type="color" id="selector" aria-label="Elegir otro color">
+      </label>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-brillo">
+    <h2 id="t-brillo" hidden>Brillo</h2>
+    <div class="deslizador">
+      <label for="brillo">Brillo <output id="brillo-v" for="brillo">100 %</output></label>
+      <input type="range" id="brillo" min="5" max="100" step="1" value="100">
+    </div>
+  </section>
+ </div>
+
+ <div class="ajustes">
+  <section aria-labelledby="t-pantalla">
+    <h2 id="t-pantalla">Ambilight</h2>
+    <p class="nota">La tira copia en tiempo real los colores de los bordes del monitor.</p>
+    <label class="interruptor">
+      <span>
+        <b>Automático con pantalla completa</b>
+        <small>Se enciende con videos, películas y juegos a pantalla completa, y se apaga al salir</small>
+      </span>
+      <input type="checkbox" id="pantalla-auto" role="switch">
+    </label>
+    <label class="interruptor separado">
+      <span>
+        <b>Siempre activo</b>
+        <small>Copia los colores de la pantalla todo el tiempo</small>
+      </span>
+      <input type="checkbox" id="pantalla" role="switch">
+    </label>
+    <div class="deslizador intensidad" id="ajustes-pantalla">
+      <label for="suavizado">Suavizado <output id="suavizado-v" for="suavizado">50</output></label>
+      <input type="range" id="suavizado" min="0" max="100" step="1" value="50">
+      <small>Más alto, cambios de color más lentos y tranquilos</small>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-musica">
+    <h2 id="t-musica">Con música</h2>
+    <label class="interruptor">
+      <span>
+        <b>Reaccionar a lo que suena</b>
+        <small>Se activa al reproducir en Spotify, YouTube o cualquier reproductor</small>
+      </span>
+      <input type="checkbox" id="musica-auto" role="switch">
+    </label>
+
+    <div class="efectos" id="efectos" role="radiogroup" aria-label="Efecto con música">
+      <p class="grupo">Tranquilos, para trabajar o ver videos</p>
+      <label class="efecto"><input type="radio" name="efecto" value="suave"><span><b>Respiración</b><small>Toda la tira sube y baja de brillo con la música</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto" value="latido"><span><b>Latido</b><small>Un golpe de luz con cada bajo fuerte, que se apaga despacio</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto" value="espectro"><span><b>Espectro</b><small>Graves a la izquierda, medios arriba y agudos a la derecha</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto" value="aurora"><span><b>Aurora</b><small>Ondas de tu color que fluyen lento por la tira</small></span></label>
+      <p class="grupo">Para fiesta, con más movimiento</p>
+      <label class="efecto"><input type="radio" name="efecto" value="pulso"><span><b>Pulso</b><small>Toda la tira late rápido con los graves</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto" value="vumetro"><span><b>Vúmetro</b><small>Barras que suben por los lados con el volumen</small></span></label>
+
+      <div class="deslizador intensidad">
+        <label for="intensidad">Intensidad <output id="intensidad-v" for="intensidad">70</output></label>
+        <input type="range" id="intensidad" min="0" max="100" step="1" value="70">
+        <small>Cuánto se nota la música en los efectos tranquilos</small>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-teclado">
+    <h2 id="t-teclado">Al escribir</h2>
+    <label class="interruptor">
+      <span>
+        <b>Ondas de luz con cada tecla</b>
+        <small>Las teclas de la izquierda iluminan el lado izquierdo del monitor, y así</small>
+      </span>
+      <input type="checkbox" id="teclado-activo" role="switch">
+    </label>
+    <div class="efectos" id="efectos-teclado" role="radiogroup" aria-label="Efecto al escribir">
+      <label class="efecto"><input type="radio" name="efecto-teclado" value="chispa"><span><b>Chispa</b><small>Un punto de luz quieto en la posición de la tecla</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto-teclado" value="onda"><span><b>Onda</b><small>La luz se expande desde la tecla hacia los lados</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto-teclado" value="intensa"><span><b>Onda intensa</b><small>Más ancha, más brillante y más duradera, con el fondo casi apagado</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto-teclado" value="arcoiris"><span><b>Arcoíris</b><small>Cada tecla lanza una onda de un tono distinto, partiendo de tu color</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto-teclado" value="cometas"><span><b>Cometas</b><small>Dos cometas con estela salen de la tecla hacia los extremos</small></span></label>
+      <label class="efecto"><input type="radio" name="efecto-teclado" value="velocidad"><span><b>Velocidad</b><small>La tira se llena desde abajo según lo rápido que escribes</small></span></label>
+
+      <div class="deslizador intensidad">
+        <label for="vel-teclado">Rapidez de las ondas <output id="vel-teclado-v" for="vel-teclado">50</output></label>
+        <input type="range" id="vel-teclado" min="0" max="100" step="1" value="50">
+        <small>Más rápidas se apagan antes y se acumulan menos al escribir deprisa</small>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-lampara">
+    <h2 id="t-lampara">Lámpara de piso</h2>
+    <label class="interruptor">
+      <span>
+        <b>Sincronizar con la tira</b>
+        <small>Toma el color de la tira, de la pantalla o de la música, y se enciende y apaga con ella</small>
+      </span>
+      <input type="checkbox" id="lampara" role="switch">
+    </label>
+    <div class="fila con-margen" id="ajustes-lampara">
+      <p>Zonas en ambilight</p>
+      <div class="chips" id="chips-zonas" style="grid-template-columns: repeat(5, 1fr)"></div>
+      <p class="nota" style="margin: 0.6rem 0 0">Copia el lado izquierdo de la pantalla. Más zonas dan más detalle, pero cada una cambia más despacio.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-integrados">
+    <h2 id="t-integrados">Efectos de la tira</h2>
+    <p class="nota">Los hace la propia tira, sin depender del PC.</p>
+    <div class="fila">
+      <p>Dinámicos</p>
+      <div class="chips" id="chips-dinamico"></div>
+    </div>
+    <div class="deslizador">
+      <label for="velocidad">Velocidad <output id="velocidad-v" for="velocidad">70</output></label>
+      <input type="range" id="velocidad" min="0" max="100" step="1" value="70">
+    </div>
+    <div class="fila con-margen">
+      <p>Con el micrófono de la tira</p>
+      <div class="chips" id="chips-ritmo"></div>
+    </div>
+    <div class="deslizador">
+      <label for="sensibilidad">Sensibilidad del micrófono <output id="sensibilidad-v" for="sensibilidad">50</output></label>
+      <input type="range" id="sensibilidad" min="0" max="100" step="5" value="50">
+      <small>Bájala si la tira reacciona a cualquier ruido</small>
+    </div>
+  </section>
+ </div>
+
+  <footer id="pie"></footer>
+</main>
+<div class="aviso" id="aviso" role="status"></div>
+
+<script>
+  const COLORES = [
+    ["Blanco cálido", [255, 170, 90]],
+    ["Rojo", [255, 0, 0]],
+    ["Naranja", [255, 90, 0]],
+    ["Amarillo", [255, 210, 0]],
+    ["Verde", [0, 255, 60]],
+    ["Turquesa", [0, 220, 200]],
+    ["Azul", [0, 60, 255]],
+    ["Morado", [140, 0, 255]],
+    ["Rosa", [255, 0, 140]],
+  ];
+  const TIPO = { dinamico: 2, ritmo: 3 };
+  const $ = (id) => document.getElementById(id);
+  let estado = null;
+  let arrastrando = null; // id del deslizador que se está moviendo, para no pisarlo al refrescar
+
+  const hex = (c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
+  const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const mismo = (a, b) => a && b && a.every((v, i) => v === b[i]);
+
+  // ---------- Peticiones ----------
+  async function enviar(cambios) {
+    try {
+      const r = await fetch("/tira", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cambios),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      pintar(await r.json());
+    } catch (e) {
+      avisar("No se pudo aplicar el cambio. Revisa que el PC esté encendido.");
+    }
+  }
+
+  // Los deslizadores mandan como mucho un cambio cada 150 ms mientras se arrastran
+  const pendientes = {};
+  function enviarLuego(clave, cambios) {
+    clearTimeout(pendientes[clave]);
+    pendientes[clave] = setTimeout(() => enviar(cambios), 150);
+  }
+
+  async function refrescar() {
+    try {
+      const r = await fetch("/tira", { cache: "no-store" });
+      pintar(await r.json());
+    } catch {
+      $("estado").textContent = "Sin conexión con el PC. ¿Está encendido y en la misma red?";
+    }
+  }
+
+  let avisoTimer;
+  function avisar(texto) {
+    const el = $("aviso");
+    el.textContent = texto;
+    el.classList.add("visible");
+    clearTimeout(avisoTimer);
+    avisoTimer = setTimeout(() => el.classList.remove("visible"), 3000);
+  }
+
+  // ---------- Pintar el estado ----------
+  function ponerDeslizador(id, valor, texto) {
+    const el = $(id);
+    if (arrastrando !== id) el.value = valor;
+    const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
+    el.style.setProperty("--pct", pct + "%");
+    $(id + "-v").textContent = texto(el.value);
+  }
+
+  function pintar(e) {
+    estado = e;
+    const raiz = document.documentElement.style;
+    const enColor = e.modo === "color";
+    const enPantalla = e.ambilight; // manual o por pantalla completa
+    const css = (c) => `rgb(${c.join(",")})`;
+    const luma = (c) => (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255;
+    // En ambilight el acento es el color de arriba de la pantalla, salvo que sea muy oscuro
+    let c = enColor ? e.color : [155, 107, 255];
+    if (enPantalla && e.pantalla && luma(e.pantalla.arriba) > 0.25) c = e.pantalla.arriba;
+    if (e.pantalla) raiz.setProperty("--grad", `linear-gradient(to right, ${css(e.pantalla.izq)}, ${css(e.pantalla.arriba)}, ${css(e.pantalla.der)})`);
+    raiz.setProperty("--tira", css(c));
+    raiz.setProperty("--sobre-tira", luma(c) > 0.6 ? "#1D1A29" : "#fff");
+    raiz.setProperty("--brillo", e.brillo / 100);
+    document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.body).backgroundColor;
+
+    const escena = $("escena");
+    escena.classList.toggle("apagada", !e.encendida);
+    escena.classList.toggle("efecto-integrado", e.encendida && e.modo === "efecto");
+    escena.classList.toggle("en-pantalla", e.encendida && enPantalla);
+    escena.classList.toggle("sonando", !!e.sonando);
+
+    const b = $("encendido");
+    b.setAttribute("aria-pressed", String(e.encendida));
+    b.textContent = e.encendida ? "Apagar" : "Encender";
+
+    // Línea de estado bajo el monitor
+    const est = $("estado");
+    if (!e.conectada) est.textContent = "La tira no está conectada al PC";
+    else if (!e.encendida) est.textContent = "Apagada";
+    else if (enPantalla && e.pantallaCompleta !== null) {
+      est.innerHTML = "";
+      const s = document.createElement("strong");
+      s.textContent = e.pantallaCompleta.replace(/\.exe$/i, "") || "una aplicación";
+      est.append("Pantalla completa en ", s, ": copiando sus colores");
+    } else if (enPantalla) est.textContent = "Copiando los colores de la pantalla";
+    else if (e.sonando) {
+      est.innerHTML = "";
+      const s = document.createElement("strong");
+      s.textContent = e.sonando.titulo || "Algo está sonando";
+      est.append("Sonando ahora: ", s);
+    } else if (enColor) est.textContent = "Color fijo";
+    else est.textContent = `Efecto ${e.efecto.tipo === TIPO.ritmo ? "con micrófono" : "dinámico"} ${e.efecto.indice + 1}`;
+
+    // Muestras de color
+    let coincide = false;
+    document.querySelectorAll(".muestra").forEach((m) => {
+      const sel = enColor && mismo(JSON.parse(m.dataset.c), e.color);
+      coincide ||= sel;
+      m.setAttribute("aria-pressed", String(sel));
+    });
+    $("otro").classList.toggle("activo", enColor && !coincide);
+    if (enColor) $("selector").value = hex(e.color);
+
+    ponerDeslizador("brillo", e.brillo, (v) => `${v} %`);
+    ponerDeslizador("intensidad", e.intensidadMusica, (v) => v);
+    ponerDeslizador("velocidad", e.velocidad, (v) => v);
+    ponerDeslizador("sensibilidad", e.sensibilidad, (v) => v);
+    ponerDeslizador("vel-teclado", e.velocidadTeclado, (v) => v);
+
+    $("musica-auto").checked = e.musicaAuto;
+    $("efectos").classList.toggle("inactivo", !e.musicaAuto);
+    document.querySelectorAll('input[name="efecto"]').forEach((r) => (r.checked = r.value === e.efectoMusica));
+    $("pantalla").checked = e.encendida && e.modo === "pantalla";
+    $("pantalla-auto").checked = e.pantallaAuto;
+    $("ajustes-pantalla").classList.toggle("inactivo", !e.pantallaAuto && e.modo !== "pantalla");
+    ponerDeslizador("suavizado", e.suavizadoPantalla, (v) => v);
+    $("lampara").checked = e.lamparaSync;
+    $("ajustes-lampara").classList.toggle("inactivo", !e.lamparaSync);
+    document.querySelectorAll("#chips-zonas .chip").forEach((ch) =>
+      ch.setAttribute("aria-pressed", String(+ch.dataset.n === e.lamparaZonas)),
+    );
+    $("teclado-activo").checked = e.tecladoActivo;
+    $("efectos-teclado").classList.toggle("inactivo", !e.tecladoActivo);
+    document.querySelectorAll('input[name="efecto-teclado"]').forEach((r) => (r.checked = r.value === e.efectoTeclado));
+
+    document.querySelectorAll(".chip").forEach((ch) => {
+      const activo = e.encendida && e.modo === "efecto" && e.efecto.tipo === +ch.dataset.tipo && e.efecto.indice === +ch.dataset.i;
+      ch.setAttribute("aria-pressed", String(activo));
+    });
+
+    $("pie").textContent = e.conectada ? `Firmware ${e.version}, ${e.numLeds} LEDs` : "";
+  }
+
+  // ---------- Construir controles ----------
+  const muestras = $("muestras");
+  COLORES.forEach(([nombre, c]) => {
+    const b = document.createElement("button");
+    b.className = "muestra";
+    b.style.background = `rgb(${c.join(",")})`;
+    b.dataset.c = JSON.stringify(c);
+    b.title = nombre;
+    b.setAttribute("aria-label", nombre);
+    b.addEventListener("click", () => enviar({ encendida: true, modo: "color", color: c }));
+    muestras.insertBefore(b, $("otro"));
+  });
+
+  for (const [clave, tipo] of Object.entries(TIPO)) {
+    const cont = $("chips-" + clave);
+    for (let i = 0; i < 7; i++) {
+      const b = document.createElement("button");
+      b.className = "chip";
+      b.textContent = i + 1;
+      b.dataset.tipo = tipo;
+      b.dataset.i = i;
+      b.setAttribute("aria-label", `${clave === "ritmo" ? "Efecto con micrófono" : "Efecto dinámico"} ${i + 1}`);
+      b.addEventListener("click", () => enviar({ encendida: true, modo: "efecto", efecto: { tipo, indice: i } }));
+      cont.append(b);
+    }
+  }
+
+  for (let n = 1; n <= 5; n++) {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.textContent = n;
+    b.dataset.n = n;
+    b.setAttribute("aria-label", `${n} ${n === 1 ? "zona" : "zonas"} en ambilight`);
+    b.addEventListener("click", () => enviar({ lamparaZonas: n }));
+    $("chips-zonas").append(b);
+  }
+
+  const alternar = () => estado && enviar({ encendida: !estado.encendida });
+  $("encendido").addEventListener("click", alternar);
+  $("monitor").addEventListener("click", alternar);
+
+  $("selector").addEventListener("input", (ev) =>
+    enviarLuego("color", { encendida: true, modo: "color", color: rgb(ev.target.value) }),
+  );
+
+  const campos = {
+    brillo: "brillo",
+    intensidad: "intensidadMusica",
+    velocidad: "velocidad",
+    sensibilidad: "sensibilidad",
+    "vel-teclado": "velocidadTeclado",
+    suavizado: "suavizadoPantalla",
+  };
+  for (const [id, campo] of Object.entries(campos)) {
+    const el = $(id);
+    el.addEventListener("pointerdown", () => (arrastrando = id));
+    el.addEventListener("pointerup", () => setTimeout(() => (arrastrando = null), 400));
+    el.addEventListener("input", () => {
+      ponerDeslizador(id, el.value, (v) => (id === "brillo" ? `${v} %` : v));
+      enviarLuego(id, { [campo]: +el.value });
+    });
+  }
+
+  $("musica-auto").addEventListener("change", (ev) => enviar({ musicaAuto: ev.target.checked }));
+  document.querySelectorAll('input[name="efecto"]').forEach((r) =>
+    r.addEventListener("change", () => enviar({ efectoMusica: r.value })),
+  );
+  // Al apagar el ambilight se vuelve al último color fijo
+  $("pantalla").addEventListener("change", (ev) =>
+    enviar(ev.target.checked ? { encendida: true, modo: "pantalla" } : { modo: "color" }),
+  );
+  $("pantalla-auto").addEventListener("change", (ev) => enviar({ pantallaAuto: ev.target.checked }));
+  $("lampara").addEventListener("change", (ev) => enviar({ lamparaSync: ev.target.checked }));
+  $("teclado-activo").addEventListener("change", (ev) => enviar({ tecladoActivo: ev.target.checked }));
+  document.querySelectorAll('input[name="efecto-teclado"]').forEach((r) =>
+    r.addEventListener("change", () => enviar({ efectoTeclado: r.value })),
+  );
+
+  refrescar();
+  setInterval(() => document.visibilityState === "visible" && refrescar(), 2000);
+</script>
+</body>
+</html>
