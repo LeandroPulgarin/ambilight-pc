@@ -1,5 +1,7 @@
 # Prueba Hue Sync (TV Samsung → diyHue → tira USB)
 
+> Resultados, decisiones y próximos pasos: [BITACORA.md](BITACORA.md).
+
 Prueba de concepto para validar la app **Hue Sync** del TV sin comprar un Hue Bridge ni tiras nuevas.
 
 ```
@@ -21,8 +23,10 @@ node huesync\agregar-luces.js       # solo la primera vez: da de alta las 5 zona
 .\huesync\detener-prueba.ps1        # vuelve al servicio normal (Alexa, panel en el puerto 80)
 ```
 
-Emparejar el TV: abrir la ventana de enlace, buscar el puente desde la app Hue Sync del TV, crear un área de
-entretenimiento con las 5 zonas colocadas como están en el monitor y empezar a sincronizar.
+Emparejar la app Hue (móvil) o el TV: abrir la ventana de enlace y buscar el bridge (modelo normal, no Pro).
+La app primero dice que no encuentra ninguno y luego lo encuentra en la red local. Omitir la conexión a la
+cuenta en la nube. Las luces tienen que estar en una habitación para que la app las muestre. Después, crear
+el área de entretenimiento (tipo TV) con las zonas en su lugar y sincronizar desde el TV.
 
 Para ver si llega el stream y a cuántos FPS: `Invoke-RestMethod http://192.168.1.16:8080/tira | % hueSync`,
 o `docker logs -f diyhue` (línea `Entertainment FPS`).
